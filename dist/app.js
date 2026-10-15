@@ -1,51 +1,43 @@
-import { MODES, key, nextValue, newGame, openNeighbors, placeTile, validateGame, hexToPixel, pixelToHex } from './engine.js';
-
-const $ = id => document.getElementById(id);
-const STORAGE = 'number-hex-v1';
-let saved = {};
-try { saved = JSON.parse(localStorage.getItem(STORAGE)) || {}; } catch { /* A blocked or damaged save starts a fresh game. */ }
-let mode = MODES[saved.mode] ? saved.mode : 'sum2';
-const games = Object.fromEntries(Object.keys(MODES).map(m => [m, validateGame(saved.games?.[m], m) || newGame(m)]));
-const best = Object.fromEntries(Object.keys(MODES).map(m => [m, Math.max(games[m].tiles.length - MODES[m].count, Number.isSafeInteger(saved.best?.[m]) ? saved.best[m] : 0)]));
-let game = games[mode], selected = null, revealed = false;
+import { DEFAULT_SETTINGS, newRound, startRound, refreshClock, timeLeft, playTile, swapHand, chargeTime, findMove, frontier, equationFor, score, validateRound, hexToPixel, key } from './engine.js';
+const $ = id => document.getElementById(id), STORAGE = 'number-hex-circle-v2';
+let stored = {};
+try { stored = JSON.parse(localStorage.getItem(STORAGE)) || {}; } catch {}
+let game = validateRound(stored.game) || newRound();
+let best = stored.best && typeof stored.best === 'object' ? stored.best : {};
+let selected = null, setupCenter = game.settings.center, hintTarget = null, conflict = null;
 let zoom = 1, pan = { x: 0, y: 0 }, width = 0, height = 0, drag = null, suppressClick = false;
-let toastTimeout, resizeFrame, drawFrame;
+let toastTimeout, conflictTimeout, drawFrame, cachedTiles, targets = [];
 const board = $('board'), world = $('world');
-const hexPoints = radius => Array.from({ length: 6 }, (_, i) => { const angle = Math.PI / 180 * (60 * i - 30); return `${(radius * Math.cos(angle)).toFixed(2)},${(radius * Math.sin(angle)).toFixed(2)}`; }).join(' ');
+const bestKey = () => `${game.settings.duration}-${game.settings.mistakeLimit}`;
+const bestScore = () => Number.isSafeInteger(best[bestKey()]) && best[bestKey()] > 0 ? best[bestKey()] : 0;
+const hexPoints = radius => Array.from({ length: 6 }, (_, i) => { const a = Math.PI / 180 * (60 * i - 30); return `${radius * Math.cos(a)},${radius * Math.sin(a)}`; }).join(' ');
 const points = hexPoints(33.5);
-
 function save() {
-  games[mode] = game;
-  best[mode] = Math.max(best[mode], game.tiles.length - MODES[mode].count);
-  try {
-    localStorage.setItem(STORAGE, JSON.stringify({ mode, games, best }));
-    $('save-status').textContent = 'Your path is saved automatically';
-  } catch { $('save-status').textContent = 'Storage unavailable · keep this tab open'; }
+  if (game.status === 'ended') best[bestKey()] = Math.max(bestScore(), score(game));
+  try { localStorage.setItem(STORAGE, JSON.stringify({ game, best })); $('save-status').textContent = game.status === 'playing' ? game.settings.duration ? 'Round saved · the clock keeps running' : 'Round saved · untimed practice' : 'Your round and best score are saved'; }
+  catch { $('save-status').textContent = 'Storage unavailable · keep this tab open'; }
 }
-function toast(message) {
-  clearTimeout(toastTimeout);
-  $('toast').textContent = message;
-  $('toast').classList.add('visible');
-  toastTimeout = setTimeout(() => $('toast').classList.remove('visible'), 3500);
+function toast(text) {
+  clearTimeout(toastTimeout); $('toast').textContent = text; $('toast').classList.add('visible');
+  toastTimeout = setTimeout(() => $('toast').classList.remove('visible'), 3600);
+}
+function getTargets() {
+  if (cachedTiles !== game.tiles) { cachedTiles = game.tiles; targets = frontier(game.tiles); }
+  return targets;
 }
 function scheduleDraw() {
-  if (drawFrame) return;
-  drawFrame = requestAnimationFrame(() => { drawFrame = null; drawBoard(); });
+  if (!drawFrame) drawFrame = requestAnimationFrame(() => { drawFrame = null; drawBoard(); });
 }
-function worldPoint(q, r) { return hexToPixel(q, r); }
-function screenPoint(q, r) { const p = worldPoint(q, r); return { x: width / 2 + pan.x + p.x * zoom, y: height / 2 + pan.y + p.y * zoom }; }
-function center() {
-  const last = worldPoint(game.tiles.at(-1).q, game.tiles.at(-1).r);
-  // Leave a little space in front of the latest tile for its next neighbors.
-  pan = { x: -last.x * zoom + (width > 500 ? 35 : 0), y: -last.y * zoom - 4 };
-  drawBoard();
+function centerOn(tile = score(game) ? game.tiles.at(-1) : { q: 0, r: 0 }) {
+  const p = hexToPixel(tile.q, tile.r); pan = { x: -p.x * zoom, y: -p.y * zoom - 5 }; drawBoard();
 }
 function setZoom(value, anchor = { x: width / 2, y: height / 2 }) {
-  const next = Math.min(2, Math.max(.35, value));
-  const ax = anchor.x - width / 2, ay = anchor.y - height / 2;
-  pan = { x: ax - (ax - pan.x) * next / zoom, y: ay - (ay - pan.y) * next / zoom };
-  zoom = next;
-  drawBoard();
+  const next = Math.max(.35, Math.min(2, value)), ax = anchor.x - width / 2, ay = anchor.y - height / 2;
+  pan = { x: ax - (ax - pan.x) * next / zoom, y: ay - (ay - pan.y) * next / zoom }; zoom = next; drawBoard();
+}
+function triangleShape(q, r, pair, className = '') {
+  const p = hexToPixel(q, r), a = hexToPixel(pair[0].q, pair[0].r), b = hexToPixel(pair[1].q, pair[1].r);
+  return `<polygon class="triangle-fill ${className}" points="${p.x},${p.y} ${a.x},${a.y} ${b.x},${b.y}"/>`;
 }
 function drawBoard() {
   if (!width || !height) return;
@@ -54,125 +46,132 @@ function drawBoard() {
   world.setAttribute('transform', `translate(${width / 2 + pan.x} ${height / 2 + pan.y}) scale(${zoom})`);
   const left = (-width / 2 - pan.x) / zoom, right = (width / 2 - pan.x) / zoom;
   const top = (-height / 2 - pan.y) / zoom, bottom = (height / 2 - pan.y) / zoom;
-  let background = '';
+  let bg = '', tiles = '', triangles = '';
   for (let r = Math.floor(top / 54) - 1; r <= Math.ceil(bottom / 54) + 1; r++) {
-    const start = Math.floor(left / (36 * Math.sqrt(3)) - r / 2) - 1;
-    const end = Math.ceil(right / (36 * Math.sqrt(3)) - r / 2) + 1;
-    for (let q = start; q <= end; q++) {
-      const p = worldPoint(q, r);
-      background += `<polygon class="hex-cell" points="${points}" transform="translate(${p.x} ${p.y})"/>`;
+    for (let q = Math.floor(left / (36 * Math.sqrt(3)) - r / 2) - 1; q <= Math.ceil(right / (36 * Math.sqrt(3)) - r / 2) + 1; q++) {
+      const p = hexToPixel(q, r); bg += `<polygon class="hex-cell" points="${points}" transform="translate(${p.x} ${p.y})"/>`;
     }
   }
-  const recentStart = game.tiles.length - MODES[mode].count;
-  let tiles = '', line = '';
+  for (let i = 1; i <= 6; i++) triangles += triangleShape(0, 0, [game.tiles[i], game.tiles[i === 6 ? 1 : i + 1]]);
+  if (hintTarget) for (const pair of hintTarget.triangles) triangles += triangleShape(hintTarget.q, hintTarget.r, pair, 'hinted');
+  if (conflict) for (const pair of conflict.pairs) triangles += triangleShape(conflict.q, conflict.r, pair, 'bad');
   game.tiles.forEach((t, i) => {
-    const p = worldPoint(t.q, t.r);
-    line += `${i ? 'L' : 'M'}${p.x} ${p.y} `;
-    if (p.x < left - 50 || p.x > right + 50 || p.y < top - 50 || p.y > bottom + 50) return;
-    const latest = i === game.tiles.length - 1;
-    tiles += `<g class="tile${latest ? ' latest' : ''}${i >= recentStart ? ' recent' : ''}" transform="translate(${p.x} ${p.y})" role="img" aria-label="Tile ${i + 1}: ${t.value}${latest ? ', latest tile' : ''}">${latest ? `<polygon class="tile-ring" points="${hexPoints(38.5)}"/>` : ''}<polygon class="tile-shape" points="${points}"/><text y="-2">${t.value}</text><text class="index" y="19">${String(i + 1).padStart(2, '0')}</text></g>`;
+    const p = hexToPixel(t.q, t.r);
+    if (p.x < left - 45 || p.x > right + 45 || p.y < top - 45 || p.y > bottom + 45) return;
+    const latest = i >= 7 && i === game.tiles.length - 1;
+    tiles += `<g class="tile ${i === 0 ? 'center' : i < 7 ? 'seed' : 'player'}${latest ? ' latest' : ''}" transform="translate(${p.x} ${p.y})" role="img" aria-label="${i === 0 ? 'Center' : i < 7 ? 'Starting tile' : 'Placed tile'} ${t.value}${latest ? ', latest' : ''}">${latest ? `<polygon class="tile-ring" points="${hexPoints(38.5)}"/>` : ''}<polygon class="tile-shape" points="${points}"/><text y="-2">${t.value}</text><text class="index" y="19">${i === 0 ? 'CENTER' : i < 7 ? 'SEED' : String(i - 6).padStart(2, '0')}</text></g>`;
   });
-  const open = openNeighbors(game.tiles);
-  const targets = open.map(t => {
-    const p = worldPoint(t.q, t.r);
-    return `<g class="open-hex${selected !== null ? ' has-digit' : ''}" transform="translate(${p.x} ${p.y})" role="button" tabindex="0" data-cell="${key(t.q, t.r)}" aria-label="${selected === null ? 'Choose a digit, then place' : `Place ${selected}`} at hex ${t.q}, ${t.r}"><polygon points="${points}"/><text>${selected ?? '+'}</text></g>`;
+  const open = getTargets().map(t => {
+    const p = hexToPixel(t.q, t.r), hinted = hintTarget?.q === t.q && hintTarget?.r === t.r;
+    const digit = selected === null ? null : game.hand[selected];
+    return `<g class="open-hex${digit !== null ? ' has-digit' : ''}${hinted ? ' hinted' : ''}${game.status === 'ended' ? ' disabled' : ''}" transform="translate(${p.x} ${p.y})" role="button" tabindex="${game.status === 'ended' ? '-1' : '0'}" data-cell="${key(t.q, t.r)}" aria-disabled="${game.status === 'ended'}" aria-label="${digit === null ? 'Choose a hand tile, then place' : `Place digit ${digit}`} at hex ${t.q}, ${t.r}"><polygon points="${points}"/><text>${digit ?? '+'}</text></g>`;
   }).join('');
-  world.innerHTML = `<g aria-hidden="true">${background}<path class="path-line" d="${line}"/></g>${tiles}${targets}`;
+  world.innerHTML = `<g aria-hidden="true">${bg}${triangles}</g>${tiles}${open}`;
   if (focused) world.querySelector(`[data-cell="${focused}"]`)?.focus({ preventScroll: true });
-  $('zoom-label').textContent = `${Math.round(zoom * 100)}%`;
-  $('zoom-in').disabled = zoom >= 2;
-  $('zoom-out').disabled = zoom <= .35;
+  $('zoom-label').textContent = `${Math.round(zoom * 100)}%`; $('zoom-in').disabled = zoom >= 2; $('zoom-out').disabled = zoom <= .35;
+}
+function paintClock() {
+  const left = timeLeft(game), seconds = left === null ? null : Math.ceil(left / 1000);
+  $('time-left').textContent = seconds === null ? '∞' : `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+  $('time-left').classList.toggle('urgent', seconds !== null && seconds <= 20 && game.status === 'playing');
+  $('time-left').setAttribute('aria-label', seconds === null ? 'No time limit' : `${seconds} seconds remaining`);
 }
 function update() {
-  const rule = MODES[mode], next = nextValue(game.tiles, mode);
-  const title = mode === 'product' ? 'Multiply the last two.' : mode === 'sum3' ? 'Add the last three.' : 'Add the last two.';
-  $('rule-title').textContent = title;
-  $('rule-copy').innerHTML = `Keep the last digit of their ${mode === 'product' ? 'product' : 'sum'}.<br>That’s your next tile.`;
-  $('rule-badge').textContent = mode === 'product' ? '×2' : `+${rule.count}`;
-  const parts = next.values.map((n, i) => `${i ? `<span class="formula-symbol">${rule.operator}</span>` : ''}<span class="mini-hex">${n}</span>`).join('');
-  $('formula').innerHTML = `${parts}<span class="formula-arrow">→</span><span class="mini-hex answer">${revealed ? next.digit : '?'}</span>`;
-  $('formula').classList.toggle('three', rule.count === 3);
-  $('formula').setAttribute('aria-label', `${next.values.join(` ${rule.operator} `)}; keep the last digit${revealed ? `: ${next.digit}` : ''}`);
-  $('hint-explanation').hidden = !revealed;
-  $('hint-explanation').textContent = `${next.values.join(` ${rule.operator} `)} = ${next.total} → place ${next.digit}`;
-  $('hint-button').disabled = revealed;
-  $('undo-button').disabled = game.tiles.length <= rule.count;
-  $('placed-stat').textContent = game.tiles.length - rule.count;
-  $('best-stat').textContent = best[mode];
-  $('placement-instruction').textContent = selected === null ? 'Then tap an outlined hex to place it.' : `Digit ${selected} selected. Tap an outlined hex.`;
-  document.querySelectorAll('.digit').forEach(el => el.setAttribute('aria-pressed', String(Number(el.dataset.digit) === selected)));
-  document.querySelectorAll('[data-mode]').forEach(el => {
-    el.setAttribute('aria-selected', String(el.dataset.mode === mode));
-    el.tabIndex = el.dataset.mode === mode ? 0 : -1;
-  });
-  $('game-content').setAttribute('aria-labelledby', `tab-${mode}`);
-  const blocked = !openNeighbors(game.tiles).length;
-  $('board-message').classList.toggle('error', blocked);
-  $('board-message').textContent = blocked ? 'Your path is surrounded. Undo a tile to find a new direction.' : game.tiles.length === rule.count ? 'Every path starts with a little curiosity.' : game.tiles.length - rule.count < 5 ? 'A little arithmetic. A path all your own.' : '';
-  drawBoard();
-}
-function chooseDigit(n) { selected = n; update(); }
-function attemptPlace(cell) {
-  if (suppressClick) return;
-  if (selected === null) { toast('Choose a digit below, or press 0–9 first.'); return; }
-  const [q, r] = cell.split(',').map(Number);
-  const result = placeTile(game, q, r, selected);
-  if (!result.ok) {
-    toast(result.reason);
-    const digit = document.querySelector(`.digit[data-digit="${selected}"]`);
-    digit.classList.remove('shake');
-    requestAnimationFrame(() => digit.classList.add('shake'));
-    return;
+  const active = game.status === 'playing';
+  $('round-status').textContent = active ? 'YOUR MOVE' : game.status === 'ready' ? 'READY WHEN YOU ARE' : 'ROUND COMPLETE';
+  $('hand').innerHTML = game.hand.map((value, i) => `<button class="hand-tile" data-slot="${i}" aria-label="Hand tile ${i + 1}, digit ${value}" aria-pressed="${selected === i}" ${active ? '' : 'disabled'}>${value}<small>${i + 1}</small></button>`).join('');
+  $('placed-stat').textContent = score(game); $('best-stat').textContent = bestScore();
+  $('placement-instruction').textContent = active ? selected === null ? 'Select a tile, then an outlined hex.' : `Find a place for ${game.hand[selected]}. Every triangle must fit.` : game.status === 'ready' ? 'Choose your center and limits to begin.' : 'Round complete. Explore the board or play again.';
+  $('start-button').hidden = game.status !== 'ready';
+  $('hint-button').disabled = !active; $('swap-button').disabled = !active;
+  $('hint-button').innerHTML = `Hint${game.settings.duration ? ' <small>−10s</small>' : ''}`;
+  $('swap-button').innerHTML = `Swap hand${game.settings.duration ? ' <small>−10s</small>' : ''}`;
+  $('hint-explanation').hidden = !hintTarget;
+  if (hintTarget) {
+    const eq = equationFor(hintTarget.triangles[0][0].value, hintTarget.triangles[0][1].value, hintTarget.value);
+    $('hint-explanation').textContent = `${eq.a} + ${eq.b} = ${eq.total}${eq.total > 9 ? ` → ${eq.result}` : ''}. Place your ${hintTarget.value} in the gold hex.`;
   }
-  game = result.game;
-  selected = null; revealed = false;
-  save(); update();
-  const point = screenPoint(q, r);
-  if (point.x < 100 || point.x > width - 100 || point.y < 85 || point.y > height - 100) center();
-  const count = game.tiles.length - MODES[mode].count;
-  if ([10, 25, 50, 100, 250, 500, 1000].includes(count)) toast(`${count} tiles. Look how far a little math can take you.`);
-  else $('toast').classList.remove('visible');
+  const limit = game.settings.mistakeLimit;
+  $('mistake-lights').innerHTML = limit ? Array.from({ length: limit }, (_, i) => `<span class="mistake-dot${i < game.mistakes ? ' used' : ''}"></span>`).join('') : `${game.mistakes} / ∞`;
+  $('mistake-lights').setAttribute('aria-label', `${game.mistakes} mistake${game.mistakes === 1 ? '' : 's'} used${limit ? ` of ${limit}` : ', no limit'}`);
+  $('limits-label').textContent = `${game.settings.duration ? `${game.settings.duration / 60} MINUTES` : 'NO TIME LIMIT'} · ${limit ? `${limit} MISTAKES` : 'NO MISTAKE LIMIT'}`;
+  $('board-message').textContent = game.status === 'ready' ? 'A small circle. A world of possibilities.' : game.status === 'ended' ? `${score(game)} hexes placed. Another circle awaits.` : score(game) === 0 ? 'Choose a tile. Find where it belongs.' : '';
+  paintClock(); drawBoard();
 }
-function undo() {
-  if (game.tiles.length <= MODES[mode].count) return;
-  game = { ...game, tiles: game.tiles.slice(0, -1) };
-  selected = null; revealed = false; save(); update(); center();
-  toast('One step back. A new direction ahead.');
+function showResults() {
+  for (const id of ['setup-dialog', 'help-dialog']) if ($(id).open) $(id).close();
+  $('result-title').textContent = game.reason === 'mistakes' ? 'Mistake limit reached.' : game.reason === 'blocked' ? 'A circle complete.' : 'Time’s up.';
+  $('result-score').textContent = score(game);
+  $('result-detail').textContent = `${game.mistakes} mistake${game.mistakes === 1 ? '' : 's'} · Best at these limits: ${bestScore()} hexes. Your starting circle isn’t included in the score.`;
+  if (!$('result-dialog').open) $('result-dialog').showModal();
 }
-function hint() {
-  if (revealed) return;
-  revealed = true; game = { ...game, hints: game.hints + 1 }; save(); update();
-  toast(`The next digit is ${nextValue(game.tiles, mode).digit}.`);
+function adopt(next, showResult = true) {
+  const ended = next.status === 'ended' && game.status !== 'ended'; game = next; save(); update();
+  if (ended && showResult) showResults();
 }
-function switchMode(next) {
-  if (!MODES[next] || next === mode) return;
-  games[mode] = game; mode = next; game = games[mode]; selected = null; revealed = false; zoom = 1;
-  save(); update(); center();
+function chooseSlot(index) {
+  if (game.status !== 'playing') { if (game.status === 'ready') openSetup(); return; }
+  selected = index; hintTarget = null; update();
 }
-
-$('digit-tray').innerHTML = Array.from({ length: 10 }, (_, n) => `<button class="digit" data-digit="${n}" aria-label="Select digit ${n}" aria-pressed="false">${n}</button>`).join('');
-$('digit-tray').addEventListener('click', e => { const button = e.target.closest('[data-digit]'); if (button) chooseDigit(Number(button.dataset.digit)); });
-document.querySelectorAll('[data-mode]').forEach(el => {
-  el.addEventListener('click', () => switchMode(el.dataset.mode));
-  el.addEventListener('keydown', e => {
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
-    e.preventDefault(); const modes = Object.keys(MODES), i = modes.indexOf(mode);
-    const next = e.key === 'Home' ? modes[0] : e.key === 'End' ? modes.at(-1) : modes[(i + (e.key === 'ArrowRight' ? 1 : 2)) % 3];
-    switchMode(next); $(`tab-${next}`).focus();
-  });
-});
-board.addEventListener('click', e => { const cell = e.target.closest('[data-cell]'); if (cell) attemptPlace(cell.dataset.cell); });
-board.addEventListener('keydown', e => {
-  const cell = e.target.closest('[data-cell]');
-  if (cell && ['Enter', ' '].includes(e.key)) { e.preventDefault(); attemptPlace(cell.dataset.cell); }
-});
-board.addEventListener('pointerdown', e => {
-  if (e.button !== 0 || !e.isPrimary) return;
-  drag = { id: e.pointerId, x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y, moved: false };
-  suppressClick = false;
-});
+function attempt(cell) {
+  if (suppressClick) return;
+  if (game.status !== 'playing') { if (game.status === 'ready') openSetup(); else toast('Start a new round to play.'); return; }
+  if (selected === null) { toast('Choose one of your six hand tiles first.'); return; }
+  const [q, r] = cell.split(',').map(Number), usedSlot = selected;
+  const result = playTile(game, q, r, selected);
+  if (!result.ok) {
+    if (result.conflicts) { conflict = { q, r, pairs: result.conflicts }; clearTimeout(conflictTimeout); conflictTimeout = setTimeout(() => { conflict = null; drawBoard(); }, 1800); }
+    adopt(result.game); toast(result.reason); return;
+  }
+  selected = null; hintTarget = null; conflict = null; adopt(result.game);
+  $('hand').querySelector(`[data-slot="${usedSlot}"]`)?.classList.add('dealt');
+  const p = hexToPixel(q, r), x = width / 2 + pan.x + p.x * zoom, y = height / 2 + pan.y + p.y * zoom;
+  if (x < 90 || x > width - 90 || y < 80 || y > height - 90) centerOn({ q, r });
+  toast(`Good fit. ${score(game)} ${score(game) === 1 ? 'hex' : 'hexes'} placed. A new tile is in your hand.`);
+  if (getTargets().every(t => t.validDigits.length === 0)) adopt({ ...game, status: 'ended', finishedAt: Date.now(), reason: 'blocked' });
+}
+function requestHint() {
+  const current = refreshClock(game); if (current.status !== 'playing') { adopt(current); return; }
+  const move = findMove(game);
+  if (!move) { toast('No tile in your hand fits. Try a hand swap. No hint time was charged.'); return; }
+  const next = chargeTime(game, 10);
+  if (next.status !== 'playing') { adopt(next); return; }
+  selected = move.handIndex; hintTarget = move; adopt(next); centerOn(move);
+  toast(game.settings.duration ? 'One possible move is highlighted. Hint: −10 seconds.' : 'One possible move is highlighted.');
+}
+function requestSwap() {
+  if (game.status !== 'playing') return;
+  selected = null; hintTarget = null; adopt(swapHand(game));
+  if (game.status === 'playing') toast(game.settings.duration ? 'Six new tiles. Hand swap: −10 seconds.' : 'Six new tiles.');
+}
+function paintCenterChoices() {
+  $('center-choices').innerHTML = Array.from({ length: 10 }, (_, i) => `<button type="button" class="center-choice" data-center="${i}" aria-label="Center digit ${i}" aria-pressed="${setupCenter === i}">${i}</button>`).join('');
+}
+function openSetup() {
+  if ($('result-dialog').open) $('result-dialog').close();
+  setupCenter = game.settings.center; paintCenterChoices();
+  $('duration').value = game.settings.duration; $('mistake-limit').value = game.settings.mistakeLimit;
+  $('replace-note').hidden = game.status !== 'playing';
+  if (!$('setup-dialog').open) $('setup-dialog').showModal();
+}
+function deal(settings) {
+  selected = null; hintTarget = null; conflict = null; zoom = 1;
+  if ($('result-dialog').open) $('result-dialog').close(); if ($('setup-dialog').open) $('setup-dialog').close();
+  adopt(startRound(newRound(settings))); centerOn(); toast('Your circle is ready. The round has begun.');
+}
+$('hand').addEventListener('click', e => { const el = e.target.closest('[data-slot]'); if (el) chooseSlot(Number(el.dataset.slot)); });
+$('center-choices').addEventListener('click', e => { const el = e.target.closest('[data-center]'); if (el) { setupCenter = Number(el.dataset.center); paintCenterChoices(); } });
+$('setup-form').addEventListener('submit', e => { e.preventDefault(); deal({ center: setupCenter, duration: Number($('duration').value), mistakeLimit: Number($('mistake-limit').value) }); });
+$('start-button').addEventListener('click', openSetup); $('new-button').addEventListener('click', openSetup);
+$('again-button').addEventListener('click', () => deal(game.settings)); $('result-settings').addEventListener('click', openSetup);
+$('hint-button').addEventListener('click', requestHint); $('swap-button').addEventListener('click', requestSwap);
+$('help-button').addEventListener('click', () => $('help-dialog').showModal());
+for (const el of document.querySelectorAll('[data-close]')) el.addEventListener('click', () => $(el.dataset.close).close());
+board.addEventListener('click', e => { const el = e.target.closest('[data-cell]'); if (el) attempt(el.dataset.cell); });
+board.addEventListener('keydown', e => { const el = e.target.closest('[data-cell]'); if (el && ['Enter', ' '].includes(e.key)) { e.preventDefault(); attempt(el.dataset.cell); } });
+board.addEventListener('pointerdown', e => { if (e.button === 0 && e.isPrimary) { drag = { id: e.pointerId, x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y, moved: false }; suppressClick = false; } });
 board.addEventListener('pointermove', e => {
-  if (!drag || e.pointerId !== drag.id) return;
+  if (!drag || drag.id !== e.pointerId) return;
   const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
   if (!drag.moved && Math.hypot(dx, dy) > 5) { drag.moved = true; board.setPointerCapture(e.pointerId); board.classList.add('dragging'); }
   if (drag.moved) { pan = { x: drag.panX + dx, y: drag.panY + dy }; scheduleDraw(); }
@@ -183,54 +182,22 @@ function endDrag(e) {
   if (board.hasPointerCapture(e.pointerId)) board.releasePointerCapture(e.pointerId);
   setTimeout(() => { suppressClick = false; }, 0);
 }
-board.addEventListener('pointerup', endDrag);
-board.addEventListener('pointercancel', endDrag);
+board.addEventListener('pointerup', endDrag); board.addEventListener('pointercancel', endDrag);
 board.addEventListener('pointerleave', e => { if (drag && !drag.moved) endDrag(e); });
-board.addEventListener('wheel', e => {
-  e.preventDefault();
-  const bounds = board.getBoundingClientRect();
-  setZoom(zoom * Math.exp(-e.deltaY * .0015), { x: e.clientX - bounds.left, y: e.clientY - bounds.top });
-}, { passive: false });
-$('zoom-in').addEventListener('click', () => setZoom(zoom + .15));
-$('zoom-out').addEventListener('click', () => setZoom(zoom - .15));
-$('center-button').addEventListener('click', center);
-$('undo-button').addEventListener('click', undo);
-$('hint-button').addEventListener('click', hint);
-$('help-button').addEventListener('click', () => $('help-dialog').showModal());
-document.querySelectorAll('[data-close]').forEach(el => el.addEventListener('click', () => $(el.dataset.close).close()));
-document.querySelectorAll('dialog').forEach(dialog => dialog.addEventListener('click', e => { if (e.target === dialog) { const b = dialog.getBoundingClientRect(); if (e.clientX < b.left || e.clientX > b.right || e.clientY < b.top || e.clientY > b.bottom) dialog.close(); } }));
-$('new-button').addEventListener('click', () => {
-  const rule = MODES[mode];
-  $('seed-rule-label').textContent = rule.name;
-  $('seed-inputs').innerHTML = rule.seeds.map((n, i) => `<label>Tile ${i + 1}<input type="number" min="0" max="9" step="1" value="${n}" inputmode="numeric" required aria-label="Starting digit ${i + 1}"></label>`).join('');
-  $('new-dialog').showModal();
-});
-$('new-form').addEventListener('submit', e => {
-  e.preventDefault();
-  const seeds = [...$('seed-inputs').querySelectorAll('input')].map(el => Number(el.value));
-  try { game = newGame(mode, seeds); } catch (error) { toast(error.message); return; }
-  selected = null; revealed = false; zoom = 1; save(); update(); center(); $('new-dialog').close();
-  toast('A fresh path. Where will this one go?');
-});
+board.addEventListener('wheel', e => { e.preventDefault(); const b = board.getBoundingClientRect(); setZoom(zoom * Math.exp(-e.deltaY * .0015), { x: e.clientX - b.left, y: e.clientY - b.top }); }, { passive: false });
+$('zoom-in').addEventListener('click', () => setZoom(zoom + .15)); $('zoom-out').addEventListener('click', () => setZoom(zoom - .15)); $('center-button').addEventListener('click', () => centerOn());
 document.addEventListener('keydown', e => {
-  if (document.querySelector('dialog[open]') || ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) || e.ctrlKey || e.metaKey || e.altKey) return;
-  if (/^[0-9]$/.test(e.key)) { e.preventDefault(); chooseDigit(Number(e.key)); }
-  else if (e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); }
-  else if (e.key.toLowerCase() === 'h') { e.preventDefault(); hint(); }
-  else if (e.key.toLowerCase() === 'c') { e.preventDefault(); center(); }
+  if (document.querySelector('dialog[open]') || ['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName) || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (/^[1-6]$/.test(e.key)) { e.preventDefault(); chooseSlot(Number(e.key) - 1); }
+  else if (e.key.toLowerCase() === 'h') { e.preventDefault(); requestHint(); }
+  else if (e.key.toLowerCase() === 'r') { e.preventDefault(); requestSwap(); }
+  else if (e.key.toLowerCase() === 'c') { e.preventDefault(); centerOn(); }
   else if (['+', '='].includes(e.key)) { e.preventDefault(); setZoom(zoom + .15); }
   else if (e.key === '-') { e.preventDefault(); setZoom(zoom - .15); }
-  else if (e.key.startsWith('Arrow') && !e.target.closest('[role="tablist"]')) {
-    e.preventDefault();
-    const d = { ArrowLeft: [45, 0], ArrowRight: [-45, 0], ArrowUp: [0, 45], ArrowDown: [0, -45] }[e.key];
-    if (d) { pan.x += d[0]; pan.y += d[1]; drawBoard(); }
-  }
+  else if (e.key.startsWith('Arrow')) { const d = { ArrowLeft: [45, 0], ArrowRight: [-45, 0], ArrowUp: [0, 45], ArrowDown: [0, -45] }[e.key]; if (d) { e.preventDefault(); pan.x += d[0]; pan.y += d[1]; drawBoard(); } }
 });
-new ResizeObserver(() => {
-  cancelAnimationFrame(resizeFrame);
-  resizeFrame = requestAnimationFrame(() => {
-    const first = !width; const rect = board.getBoundingClientRect(); width = rect.width; height = rect.height;
-    if (first) center(); else drawBoard();
-  });
-}).observe(board);
-save(); update();
+new ResizeObserver(() => { const first = !width, rect = board.getBoundingClientRect(); width = rect.width; height = rect.height; if (first) centerOn(); else scheduleDraw(); }).observe(board);
+setInterval(() => { const next = refreshClock(game); if (next !== game) adopt(next); else paintClock(); }, 250);
+document.addEventListener('visibilitychange', () => { const next = refreshClock(game); if (next !== game) adopt(next); else paintClock(); });
+game = refreshClock(game); save(); update();
+if (game.status === 'ready') openSetup(); else if (game.status === 'ended') showResults();

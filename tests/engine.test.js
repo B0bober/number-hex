@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MODES, newGame, nextValue, openNeighbors, placeTile, validateGame, hexToPixel, pixelToHex } from '../dist/engine.js';
+import { MODES, newGame, nextValue, openNeighbors, placeTile, validateGame, hexToPixel, pixelToHex } from '../dist/classic-engine.js';
 
 test('sum of two uses the ones digit, including wraparound and zero', () => {
   let game = newGame('sum2', [8, 7]);

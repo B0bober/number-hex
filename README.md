@@ -1,45 +1,55 @@
 # Number Hex
 
-A little arithmetic. An endless hexagon canvas.
+**[Play Number Hex](https://b0bober.github.io/number-hex/)** · [Classic paths](https://b0bober.github.io/number-hex/classic.html)
 
-Number Hex is a browser-based tile-laying game. Choose the next digit, then place it in an empty hexagon sharing a side with the most recently played tile. The board expands in every direction with no fixed boundary.
+Six tiles in your hand. A growing hex board. Make every triangle count.
 
-## Rules
+## Circle challenge
 
-“Precedents” are the most recent tiles **in play order**. Other tiles touching the new tile do not enter the calculation.
+1. Choose your center digit (0–9). Six random neighbors form a starting circle. All six triangles, including the closing triangle, are checked before the circle is dealt.
+2. Choose a time and mistake limit. Defaults are **3 minutes** and **3 mistakes**. Both can be changed or disabled.
+3. You get **six random hand tiles**. Select one, then an outlined empty hex that completes a triangle with two touching tiles.
+4. Each triangle contains three mutually adjacent hexes. One digit must equal the **last digit of the sum of the other two**, regardless of play order. For example: 3 + 4 = 7; 8 + 7 = 15 → 5. Zero and repeated digits are allowed.
+5. Every triangle completed by the placement must comply. A tile can be placed anywhere around the board, not only next to the last tile.
+6. A successful placement adds **one point** and deals **one replacement tile** into the same hand slot. Your hand always has six tiles. The seven starting tiles do not score.
+7. Wrong placements use a mistake without changing your hand or the board. The round ends when time runs out or the mistake limit is reached. If no further digit could fit anywhere, the round ends as a blocked board.
 
-| Mode | Rule | Example |
-| --- | --- | --- |
-| Sum of 2 | Last digit of the sum of the last two tiles | 8 + 7 = 15 → **5** |
-| Sum of 3 | Last digit of the sum of the last three tiles | 9 + 8 + 7 = 24 → **4** |
-| Multiply | Last digit of the product of the last two tiles | 7 × 8 = 56 → **6** |
+A **hint** shows a legal move using your actual hand. A **hand swap** deals six new random tiles. Each costs **10 seconds** in timed games; in untimed games they have no time cost. A hint that finds no move charges nothing. These let you continue after an unlucky draw.
 
-The game provides two or three starting tiles. Use **Start a new path** to choose your own starting digits. Choose a digit with the tray or keyboard, then click an outlined hex. You cannot overlap a tile. If your path becomes surrounded, undo a move and choose a different direction. Zero is a valid digit, including repeating zeros in multiplication mode.
+The clock begins at **Deal & start**, keeps running in help and other tabs, and survives refresh using an absolute deadline. Progress and best scores are stored locally. Best scores are tracked separately for each combination of time and mistake limits. If storage is unavailable, the round still works in the current tab.
 
-No timer, lives, fixed-size board, or locked modes. Progress and a personal best for each mode are saved in the current browser's local storage. If local storage is unavailable, the game still runs for the current visit.
+## Classic paths
 
-## Play locally
+The original sequence game remains available at `classic.html`, with its independent saved progress. Its three modes use the last two numbers added, the last three numbers added, or the last two numbers multiplied. Keep only the last digit, then place next to the latest tile. Classic has undo, hints, and editable starting digits, with no timer or mistakes.
 
-No installation or build step is needed. Serve `dist/` with any static web server:
+## Controls
+
+| Circle challenge | Action |
+| --- | --- |
+| 1–6 | Select a hand slot |
+| Click / tap an outlined hex | Place the selected tile |
+| Tab, then Enter / Space | Place on a focused hex |
+| Drag / arrow keys | Pan |
+| Scroll / + / − | Zoom |
+| C | Center |
+| H | Hint |
+| R | Swap hand |
+
+On phones, tap a hand tile and then an outlined hex.
+
+## Run locally
+
+No installation or build step is needed. Serve `dist/` with any static server:
 
 ```sh
 python3 -m http.server 8080 --directory dist
 ```
 
-Open http://localhost:8080 in a modern browser. Serve the files over HTTP; JavaScript modules do not load reliably from `file://` URLs.
+Open http://localhost:8080 in a modern browser. Use HTTP rather than opening the HTML as a local file, since the game uses JavaScript modules.
 
-## Controls
+## Development
 
-- **0–9**: select digit
-- **Click / tap an outlined hex**: place selected digit
-- **Drag**: pan the board; **scroll** or **+/−**: zoom
-- **Arrow keys**: pan; **C**: center on the latest tile
-- **Z**: undo; **H**: reveal a hint
-- **Tab**, then **Enter / Space**: place on a focused hex
-
-## Development and tests
-
-Vanilla JavaScript, CSS, and SVG. There are no runtime dependencies. Google Fonts are optional; local fallback fonts keep the game functional if they are unavailable. The sparse axial-coordinate board has no programmed size limit. Only visible background cells and tiles are drawn; the chronological path is retained for rules, undo, and saving. Available memory and browser storage are the practical limits.
+Vanilla JavaScript, CSS, and SVG; no runtime dependencies. Optional Google Fonts have local fallbacks. The board stores sparse axial coordinates and draws only the visible background and tiles. There is no programmed board-size limit; browser memory and storage are the practical limits.
 
 With Node.js 20 or newer:
 
@@ -47,11 +57,11 @@ With Node.js 20 or newer:
 npm test
 ```
 
-Tests cover all three rules, wraparound, zero, turns, illegal moves, save validation, coordinate conversion, and paths longer than 1,200 moves in every mode.
+Tests cover all centers and randomized starting rings, every completed triangle, hand replacement, scoring, mistake limits, real-time deadlines, save validation, hint and swap penalties, unlimited practice settings, unbounded coordinates, and the original classic modes.
 
-## Hosting
+## Deploy
 
-Host the contents of `dist/` on any static hosting service. A GitHub Actions workflow is included for GitHub Pages: choose **Settings → Pages → Source → GitHub Actions**, then run the **Deploy Number Hex** workflow. It tests the rules before deploying. The repository also includes configuration for its private ChatGPT Sites preview.
+GitHub Pages uses the included workflow. It tests the game and deploys `dist/` on pushes to `main` or when run manually. Pages is configured to use **GitHub Actions**. The same static source can be hosted anywhere; `.openai/hosting.json` maintains the existing private ChatGPT Sites preview.
 
 ## License
 

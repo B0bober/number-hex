@@ -1,8 +1,8 @@
 {
   "name": "number-hex",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
-  "description": "An endless hexagon tile-laying number game for the browser.",
+  "description": "A timed hexagon tile game with a starting circle, a six-tile hand, and triangle arithmetic.",
   "type": "module",
   "scripts": { "test": "node --test tests/*.test.js", "start": "python3 -m http.server 8080 --directory dist" },
   "engines": { "node": ">=20" },
