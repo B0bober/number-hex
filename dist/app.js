@@ -1,12 +1,13 @@
-import { DEFAULT_SETTINGS, newRound, startRound, refreshClock, timeLeft, playTile, swapHand, chargeTime, findMove, frontier, equationFor, score, validateRound, hexToPixel, key } from './engine.js';
-const $ = id => document.getElementById(id), STORAGE = 'number-hex-circle-v2';
+import { DEFAULT_SETTINGS, newRound, startRound, refreshClock, timeLeft, playTile, swapHand, chargeTime, findMove, frontier, largeTriangles, score, validateRound, hexToPixel, key } from './engine.js?v=3';
+const $ = id => document.getElementById(id), STORAGE = 'number-hex-large-triangles-v3';
 let stored = {};
 try { stored = JSON.parse(localStorage.getItem(STORAGE)) || {}; } catch {}
 let game = validateRound(stored.game) || newRound();
 let best = stored.best && typeof stored.best === 'object' ? stored.best : {};
 let selected = null, setupCenter = game.settings.center, hintTarget = null, conflict = null;
 let zoom = 1, pan = { x: 0, y: 0 }, width = 0, height = 0, drag = null, suppressClick = false;
-let toastTimeout, conflictTimeout, drawFrame, cachedTiles, targets = [];
+let toastTimeout, conflictTimeout, drawFrame, cachedTiles, targets = [], tracked = [], lastSide = null;
+let showGuides = true;
 const board = $('board'), world = $('world');
 const bestKey = () => `${game.settings.duration}-${game.settings.mistakeLimit}`;
 const bestScore = () => Number.isSafeInteger(best[bestKey()]) && best[bestKey()] > 0 ? best[bestKey()] : 0;
@@ -22,7 +23,15 @@ function toast(text) {
   toastTimeout = setTimeout(() => $('toast').classList.remove('visible'), 3600);
 }
 function getTargets() {
-  if (cachedTiles !== game.tiles) { cachedTiles = game.tiles; targets = frontier(game.tiles); }
+  if (cachedTiles !== game.tiles) {
+    cachedTiles = game.tiles; targets = frontier(game.tiles); tracked = largeTriangles(game.tiles);
+    const last = game.tiles.at(-1); lastSide = null;
+    if (score(game)) for (const triangle of tracked) for (const side of triangle.sides) {
+      if (!side.some(p=>p.q===last.q&&p.r===last.r)) continue;
+      const values=side.map(p=>game.tiles.find(t=>t.q===p.q&&t.r===p.r)?.value);
+      if(values.every(n=>n!==undefined))lastSide=values;
+    }
+  }
   return targets;
 }
 function scheduleDraw() {
@@ -35,12 +44,14 @@ function setZoom(value, anchor = { x: width / 2, y: height / 2 }) {
   const next = Math.max(.35, Math.min(2, value)), ax = anchor.x - width / 2, ay = anchor.y - height / 2;
   pan = { x: ax - (ax - pan.x) * next / zoom, y: ay - (ay - pan.y) * next / zoom }; zoom = next; drawBoard();
 }
-function triangleShape(q, r, pair, className = '') {
-  const p = hexToPixel(q, r), a = hexToPixel(pair[0].q, pair[0].r), b = hexToPixel(pair[1].q, pair[1].r);
-  return `<polygon class="triangle-fill ${className}" points="${p.x},${p.y} ${a.x},${a.y} ${b.x},${b.y}"/>`;
+function triangleShape(triangle, className = '') {
+  const center=hexToPixel(triangle.q,triangle.r);
+  const points=triangle.corners.map(p=>{const a=hexToPixel(p.q,p.r);return `${center.x+(a.x-center.x)*1.34},${center.y+(a.y-center.y)*1.34}`;}).join(' ');
+  return `<polygon class="large-triangle ${triangle.complete?'complete':''} ${className}" points="${points}"/>`;
 }
 function drawBoard() {
   if (!width || !height) return;
+  const available = getTargets();
   const focused = document.activeElement?.getAttribute('data-cell');
   board.setAttribute('viewBox', `0 0 ${width} ${height}`);
   world.setAttribute('transform', `translate(${width / 2 + pan.x} ${height / 2 + pan.y}) scale(${zoom})`);
@@ -52,21 +63,25 @@ function drawBoard() {
       const p = hexToPixel(q, r); bg += `<polygon class="hex-cell" points="${points}" transform="translate(${p.x} ${p.y})"/>`;
     }
   }
-  for (let i = 1; i <= 6; i++) triangles += triangleShape(0, 0, [game.tiles[i], game.tiles[i === 6 ? 1 : i + 1]]);
-  if (hintTarget) for (const pair of hintTarget.triangles) triangles += triangleShape(hintTarget.q, hintTarget.r, pair, 'hinted');
-  if (conflict) for (const pair of conflict.pairs) triangles += triangleShape(conflict.q, conflict.r, pair, 'bad');
+  if (showGuides) {
+    const last=game.tiles.at(-1);
+    const nearby=[...tracked].sort((a,b)=>(a.q-last.q)**2+(a.r-last.r)**2-(b.q-last.q)**2-(b.r-last.r)**2).slice(0,36);
+    for(const triangle of nearby) triangles += triangleShape(triangle);
+    if(hintTarget) for(const triangle of hintTarget.triangles) triangles += triangleShape(triangle,'hinted');
+    if(conflict) for(const triangle of conflict.triangles) triangles += triangleShape(triangle,'bad');
+  }
   game.tiles.forEach((t, i) => {
     const p = hexToPixel(t.q, t.r);
     if (p.x < left - 45 || p.x > right + 45 || p.y < top - 45 || p.y > bottom + 45) return;
     const latest = i >= 7 && i === game.tiles.length - 1;
     tiles += `<g class="tile ${i === 0 ? 'center' : i < 7 ? 'seed' : 'player'}${latest ? ' latest' : ''}" transform="translate(${p.x} ${p.y})" role="img" aria-label="${i === 0 ? 'Center' : i < 7 ? 'Starting tile' : 'Placed tile'} ${t.value}${latest ? ', latest' : ''}">${latest ? `<polygon class="tile-ring" points="${hexPoints(38.5)}"/>` : ''}<polygon class="tile-shape" points="${points}"/><text y="-2">${t.value}</text><text class="index" y="19">${i === 0 ? 'CENTER' : i < 7 ? 'SEED' : String(i - 6).padStart(2, '0')}</text></g>`;
   });
-  const open = getTargets().map(t => {
+  const open = available.map(t => {
     const p = hexToPixel(t.q, t.r), hinted = hintTarget?.q === t.q && hintTarget?.r === t.r;
     const digit = selected === null ? null : game.hand[selected];
     return `<g class="open-hex${digit !== null ? ' has-digit' : ''}${hinted ? ' hinted' : ''}${game.status === 'ended' ? ' disabled' : ''}" transform="translate(${p.x} ${p.y})" role="button" tabindex="${game.status === 'ended' ? '-1' : '0'}" data-cell="${key(t.q, t.r)}" aria-disabled="${game.status === 'ended'}" aria-label="${digit === null ? 'Choose a hand tile, then place' : `Place digit ${digit}`} at hex ${t.q}, ${t.r}"><polygon points="${points}"/><text>${digit ?? '+'}</text></g>`;
   }).join('');
-  world.innerHTML = `<g aria-hidden="true">${bg}${triangles}</g>${tiles}${open}`;
+  world.innerHTML = `<g aria-hidden="true">${bg}</g>${tiles}${open}<g aria-hidden="true" class="triangle-guides">${triangles}</g>`;
   if (focused) world.querySelector(`[data-cell="${focused}"]`)?.focus({ preventScroll: true });
   $('zoom-label').textContent = `${Math.round(zoom * 100)}%`; $('zoom-in').disabled = zoom >= 2; $('zoom-out').disabled = zoom <= .35;
 }
@@ -78,24 +93,32 @@ function paintClock() {
 }
 function update() {
   const active = game.status === 'playing';
-  $('round-status').textContent = active ? 'YOUR MOVE' : game.status === 'ready' ? 'READY WHEN YOU ARE' : 'ROUND COMPLETE';
+  getTargets();
+  const side=lastSide||[1,4,7,1];
+  $('side-label').textContent=lastSide?'LAST COMPLETED SIDE':'FOUR HEXES ALONG A SIDE';
+  $('side-example').innerHTML=side.map((n,i)=>`${i?'<span class="side-dash">–</span>':''}<span class="mini-hex ${i===0||i===3?'answer':''}">${n}</span>`).join('');
+  $('side-example').setAttribute('aria-label',`Side ${side.join(', ')}`);
+  $('side-equation').textContent=`${side[1]} + ${side[2]} = ${side[1]+side[2]}${side[1]+side[2]>9?` → ${side[0]}`:''} · equal ends`;
+  const complete=tracked.filter(t=>t.complete).length;
+  $('triangle-status').textContent=`${complete} complete · ${tracked.length-complete} forming`;
+  $('round-status').textContent=active?`MOVE ${score(game)+1}`:game.status==='ready'?'READY WHEN YOU ARE':'ROUND COMPLETE';
+
   $('hand').innerHTML = game.hand.map((value, i) => `<button class="hand-tile" data-slot="${i}" aria-label="Hand tile ${i + 1}, digit ${value}" aria-pressed="${selected === i}" ${active ? '' : 'disabled'}>${value}<small>${i + 1}</small></button>`).join('');
   $('placed-stat').textContent = score(game); $('best-stat').textContent = bestScore();
-  $('placement-instruction').textContent = active ? selected === null ? 'Select a tile, then an outlined hex.' : `Find a place for ${game.hand[selected]}. Every triangle must fit.` : game.status === 'ready' ? 'Choose your center and limits to begin.' : 'Round complete. Explore the board or play again.';
+  $('placement-instruction').textContent = active ? selected === null ? 'Select a tile, then an outlined hex.' : `Find a place for ${game.hand[selected]}. Check the sides and matching corners.` : game.status === 'ready' ? 'Choose your center and limits to begin.' : 'Round complete. Explore the board or play again.';
   $('start-button').hidden = game.status !== 'ready';
   $('hint-button').disabled = !active; $('swap-button').disabled = !active;
   $('hint-button').innerHTML = `Hint${game.settings.duration ? ' <small>−10s</small>' : ''}`;
   $('swap-button').innerHTML = `Swap hand${game.settings.duration ? ' <small>−10s</small>' : ''}`;
   $('hint-explanation').hidden = !hintTarget;
   if (hintTarget) {
-    const eq = equationFor(hintTarget.triangles[0][0].value, hintTarget.triangles[0][1].value, hintTarget.value);
-    $('hint-explanation').textContent = `${eq.a} + ${eq.b} = ${eq.total}${eq.total > 9 ? ` → ${eq.result}` : ''}. Place your ${hintTarget.value} in the gold hex.`;
+    $('hint-explanation').textContent = hintTarget.explanation;
   }
   const limit = game.settings.mistakeLimit;
   $('mistake-lights').innerHTML = limit ? Array.from({ length: limit }, (_, i) => `<span class="mistake-dot${i < game.mistakes ? ' used' : ''}"></span>`).join('') : `${game.mistakes} / ∞`;
   $('mistake-lights').setAttribute('aria-label', `${game.mistakes} mistake${game.mistakes === 1 ? '' : 's'} used${limit ? ` of ${limit}` : ', no limit'}`);
   $('limits-label').textContent = `${game.settings.duration ? `${game.settings.duration / 60} MINUTES` : 'NO TIME LIMIT'} · ${limit ? `${limit} MISTAKES` : 'NO MISTAKE LIMIT'}`;
-  $('board-message').textContent = game.status === 'ready' ? 'A small circle. A world of possibilities.' : game.status === 'ended' ? `${score(game)} hexes placed. Another circle awaits.` : score(game) === 0 ? 'Choose a tile. Find where it belongs.' : '';
+  $('board-message').textContent = game.status === 'ready' ? 'A small circle. A world of possibilities.' : game.status === 'ended' ? `${score(game)} hexes placed. Another circle awaits.` : `Move ${score(game)+1}. Choose a tile and keep building.`;
   paintClock(); drawBoard();
 }
 function showResults() {
@@ -120,7 +143,7 @@ function attempt(cell) {
   const [q, r] = cell.split(',').map(Number), usedSlot = selected;
   const result = playTile(game, q, r, selected);
   if (!result.ok) {
-    if (result.conflicts) { conflict = { q, r, pairs: result.conflicts }; clearTimeout(conflictTimeout); conflictTimeout = setTimeout(() => { conflict = null; drawBoard(); }, 1800); }
+    conflict = { triangles: result.conflicts || tracked.filter(t=>t.boundary.some(p=>p.q===q&&p.r===r)) }; clearTimeout(conflictTimeout); conflictTimeout = setTimeout(() => { conflict = null; drawBoard(); }, 1800);
     adopt(result.game); toast(result.reason); return;
   }
   selected = null; hintTarget = null; conflict = null; adopt(result.game);
@@ -185,6 +208,7 @@ function endDrag(e) {
 board.addEventListener('pointerup', endDrag); board.addEventListener('pointercancel', endDrag);
 board.addEventListener('pointerleave', e => { if (drag && !drag.moved) endDrag(e); });
 board.addEventListener('wheel', e => { e.preventDefault(); const b = board.getBoundingClientRect(); setZoom(zoom * Math.exp(-e.deltaY * .0015), { x: e.clientX - b.left, y: e.clientY - b.top }); }, { passive: false });
+$('triangle-toggle').addEventListener('change', e=>{showGuides=e.target.checked;drawBoard();});
 $('zoom-in').addEventListener('click', () => setZoom(zoom + .15)); $('zoom-out').addEventListener('click', () => setZoom(zoom - .15)); $('center-button').addEventListener('click', () => centerOn());
 document.addEventListener('keydown', e => {
   if (document.querySelector('dialog[open]') || ['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName) || e.ctrlKey || e.metaKey || e.altKey) return;

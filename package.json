@@ -1,8 +1,8 @@
 {
   "name": "number-hex",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "private": true,
-  "description": "A timed hexagon tile game with a starting circle, a six-tile hand, and triangle arithmetic.",
+  "description": "A timed hexagon tile game with a starting circle, a six-tile hand, and four-hex triangle sides.",
   "type": "module",
   "scripts": { "test": "node --test tests/*.test.js", "start": "python3 -m http.server 8080 --directory dist" },
   "engines": { "node": ">=20" },
