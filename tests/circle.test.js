@@ -122,8 +122,8 @@ test('saved rounds validate rings, hand sizes, duplicate cells, and arithmetic',
   played.tiles.at(-1).value = Array.from({length:10},(_,i)=>i).find(n => !target.validDigits.includes(n));
   assert.equal(validateRound(played), null);
 });
-test('the board can grow 150 scored tiles without a programmed boundary', () => {
-  let game = round({ duration: 0, mistakeLimit: 0 });
+test('a center-5 round can grow 150 scored tiles without a programmed boundary', () => {
+  let game = round({ center: 5, duration: 0, mistakeLimit: 0 });
   for (let i = 0; i < 150; i++) {
     const target = legalMove(game); game.hand[0] = target.digit;
     const result = playTile(game, target.q, target.r, 0, random(i + 1), 2000);
@@ -156,4 +156,23 @@ test('every center supports forty consecutive scored moves and retains legal con
 });
 test('saves from the old small-triangle rule are not loaded into the new rules', () => {
   const game=round();game.version=2;assert.equal(validateRound(game),null);
+});
+test('starting circles maximize distinct board digits for each chosen center', () => {
+  for(let center=0;center<10;center++)for(let seed=1;seed<=60;seed++){
+    const game=newRound({center},random(seed*982451653));
+    const expected=center===0||center===5?2:3;
+    assert.equal(new Set(game.tiles.map(t=>t.value)).size,expected);
+    if(expected===3)assert.ok(game.tiles.slice(1).every(t=>t.value!==center));
+    assert.ok(largeTriangles(game.tiles).every(t=>t.valid));
+  }
+});
+test('initial hands contain six different digits and still vary between deals', () => {
+  const hands=new Set(),seenDigits=new Set();
+  for(let seed=1;seed<=100;seed++){
+    const game=newRound({},random(seed*982451653));
+    assert.equal(game.hand.length,6);assert.equal(new Set(game.hand).size,6);
+    for(const n of game.hand){assert.ok(Number.isInteger(n)&&n>=0&&n<=9);seenDigits.add(n);}
+    hands.add(game.hand.join(','));
+  }
+  assert.ok(hands.size>50);assert.equal(seenDigits.size,10);
 });

@@ -1,15 +1,20 @@
 export { hexToPixel, pixelToHex, adjacent, key, DIRECTIONS } from './classic-engine.js';
 import { DIRECTIONS, key } from './classic-engine.js';
-import { isDigit, generateRing, checkPlacement, frontier, largeTriangles } from './rules.js?v=3';
-export { isDigit, generateRing, checkPlacement, frontier, largeTriangles, sideValid, SHAPES } from './rules.js?v=3';
-export const DEFAULT_SETTINGS = { center: 5, duration: 180, mistakeLimit: 3 };
+import { isDigit, generateRing, checkPlacement, frontier, largeTriangles } from './rules.js?v=3.1';
+export { isDigit, generateRing, checkPlacement, frontier, largeTriangles, sideValid, SHAPES } from './rules.js?v=3.1';
+export const DEFAULT_SETTINGS = { center: 3, duration: 180, mistakeLimit: 3 };
 export const score = game => Math.max(0, game.tiles.length - 7);
 function drawDigit(random) { return Math.floor(random() * 10); }
+function initialHand(random) {
+  const digits=Array.from({length:10},(_,i)=>i);
+  for(let i=digits.length-1;i>0;i--){const j=Math.floor(random()*(i+1));[digits[i],digits[j]]=[digits[j],digits[i]];}
+  return digits.slice(0,6);
+}
 export function newRound(settings = DEFAULT_SETTINGS, random = Math.random) {
   settings = { ...DEFAULT_SETTINGS, ...settings };
   if (!isDigit(settings.center) || ![0, 60, 180, 300, 600].includes(settings.duration) || ![0, 1, 3, 5].includes(settings.mistakeLimit)) throw new Error('Choose valid round settings.');
   const ring = generateRing(settings.center, random);
-  return { version: 3, settings, status: 'ready', tiles: [{ q: 0, r: 0, value: settings.center }, ...DIRECTIONS.map(([q, r], i) => ({ q, r, value: ring[i] }))], hand: Array.from({ length: 6 }, () => drawDigit(random)), mistakes: 0, endsAt: null, startedAt: null, finishedAt: null, reason: null };
+  return { version: 3, settings, status: 'ready', tiles: [{ q: 0, r: 0, value: settings.center }, ...DIRECTIONS.map(([q, r], i) => ({ q, r, value: ring[i] }))], hand: initialHand(random), mistakes: 0, endsAt: null, startedAt: null, finishedAt: null, reason: null };
 }
 export function startRound(game, now = Date.now()) {
   if (game.status !== 'ready') return game;

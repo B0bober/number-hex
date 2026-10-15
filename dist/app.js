@@ -1,4 +1,4 @@
-import { DEFAULT_SETTINGS, newRound, startRound, refreshClock, timeLeft, playTile, swapHand, chargeTime, findMove, frontier, largeTriangles, score, validateRound, hexToPixel, key } from './engine.js?v=3';
+import { DEFAULT_SETTINGS, newRound, startRound, refreshClock, timeLeft, playTile, swapHand, chargeTime, findMove, frontier, largeTriangles, score, validateRound, hexToPixel, key } from './engine.js?v=3.1';
 const $ = id => document.getElementById(id), STORAGE = 'number-hex-large-triangles-v3';
 let stored = {};
 try { stored = JSON.parse(localStorage.getItem(STORAGE)) || {}; } catch {}

@@ -106,9 +106,13 @@ export function frontier(tiles) {
 }
 export function generateRing(center,random=Math.random) {
   if(!isDigit(center))throw new Error('Choose a center digit from 0 to 9.');
-  // Equal triangle corners force an alternating ring. Choosing one parity from
-  // 0/5 also lets the sequences extend beyond the six first outside corners.
-  let a=random()<.5?0:5,b=(a+center)%10;
+  // Alternation is required by equal corners. Among the extensible patterns,
+  // prefer the largest number of distinct digits across center and ring.
+  const patterns=[0,5].map(a=>({a,b:(a+center)%10}));
+  const variety=p=>new Set([center,p.a,p.b]).size;
+  const maximum=Math.max(...patterns.map(variety));
+  const best=patterns.filter(p=>variety(p)===maximum);
+  let {a,b}=best[Math.floor(random()*best.length)];
   if(random()<.5)[a,b]=[b,a];
   return Array.from({length:6},(_,i)=>i%2?b:a);
 }

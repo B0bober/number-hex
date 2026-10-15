@@ -1,6 +1,6 @@
 {
   "name": "number-hex",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "private": true,
   "description": "A timed hexagon tile game with a starting circle, a six-tile hand, and four-hex triangle sides.",
   "type": "module",

@@ -17,9 +17,9 @@ Outlines show the larger triangles being tracked. A triangle begins being tracke
 
 ## Play a round
 
-1. Choose your center digit (0–9). The six surrounding numbers are generated as a constrained alternating pattern so both starting triangles agree and the sequences can continue. They are not six independent random digits.
+1. Choose your center digit (0–9). The generator chooses the most distinct digits possible among the alternating patterns that support continued play. Normally the seven board tiles contain three distinct digits; centers 0 and 5 allow two in these extensible patterns. Equally varied patterns and their orientation are chosen randomly. The default center is 3.
 2. Choose the time and mistake limits. Defaults: **3 minutes** and **3 mistakes**; either limit can be changed or disabled.
-3. You receive **six random hand tiles**. Select a tile and an outlined empty hex.
+3. You receive **six different random hand digits**. Later replacement draws may repeat a digit already in your hand. Select a tile and an outlined empty hex.
 4. Extend two consecutive numbers along a straight line, or fill a missing position in a tracked side. A new tile must fit every side and matching-corner requirement it touches. Filling an interior gap uses the side equation; it does not sum a corner again as if it were another interior number.
 5. Every successful placement scores **one hex** and deals **one replacement tile** into the same hand slot. Keep placing tiles one after another. The starting seven tiles do not score.
 6. Wrong digits use a mistake and leave your board and hand unchanged. The round ends at a time or mistake limit, or when no legal space remains.
