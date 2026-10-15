@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#f6f5f0">
+  <meta name="description" content="A little arithmetic. An endless hexagon canvas. Choose the next digit and grow your path in Number Hex, a free browser puzzle.">
+  <title>Number Hex — One digit. Endless possibilities.</title>
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="./" aria-label="Number Hex home"><svg viewBox="0 0 36 40" aria-hidden="true"><path d="M18 2 34 11v18L18 38 2 29V11Z"/><path d="M12 14v12m12-12v12M10 18h16m-16 5h16"/></svg><span>number hex<span class="brand-dot">.</span></span></a>
+    <div class="header-note"><span class="status-dot"></span>A little math. A lot of possibility.</div>
+    <button class="text-button" id="help-button"><span class="help-icon">?</span> How to play</button>
+  </header>
+
+  <main>
+    <section class="intro" aria-labelledby="title">
+      <div><p class="eyebrow">A GAME OF NUMBERS & NEIGHBORS</p><h1 id="title">Small sums.<br class="mobile-break"> <em>Endless paths.</em></h1><p class="intro-copy">Find the next digit. Pick a direction. See where it takes you.</p></div>
+      <div class="intro-mark" aria-hidden="true"><span>3</span><span>4</span><span>7</span><i>one thing leads<br>to another ↗</i></div>
+    </section>
+
+    <section class="game" aria-label="Number Hex game">
+      <div class="game-bar"><div class="mode-tabs" role="tablist" aria-label="Game rule"><button id="tab-sum2" role="tab" aria-selected="true" aria-controls="game-content" data-mode="sum2"><span class="level-number">01</span> Sum of 2</button><button id="tab-sum3" role="tab" aria-selected="false" aria-controls="game-content" data-mode="sum3" tabindex="-1"><span class="level-number">02</span> Sum of 3</button><button id="tab-product" role="tab" aria-selected="false" aria-controls="game-content" data-mode="product" tabindex="-1"><span class="level-number">03</span> Multiply</button></div><span class="endless-label">∞ <span>ENDLESS MODE</span></span></div>
+      <div id="game-content" class="game-content" role="tabpanel" aria-labelledby="tab-sum2">
+        <div class="board-area">
+          <div class="board-caption"><span class="tiny-hex"></span> YOUR GROWING CANVAS</div>
+          <div class="board-legend"><span></span> latest tile</div>
+          <svg id="board" role="group" aria-label="Hexagon board. Choose a digit, then place it in a highlighted hexagon next to the latest tile." tabindex="0"><g id="world"></g></svg>
+          <div class="board-message" id="board-message">Every path starts with a little curiosity.</div>
+          <div class="board-bottom"><span class="pan-tip">Drag to explore <span>·</span> Scroll to zoom</span><div class="view-tools"><button id="zoom-out" aria-label="Zoom out">−</button><span id="zoom-label">100%</span><button id="zoom-in" aria-label="Zoom in">+</button><span class="tool-divider"></span><button id="center-button" aria-label="Center on latest tile" title="Center on latest tile (C)"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="5"/><path d="M10 1v5m0 8v5M1 10h5m8 0h5"/></svg></button></div></div>
+        </div>
+
+        <aside class="play-panel" aria-label="Game controls">
+          <div class="panel-heading"><span class="eyebrow">THE NEXT MOVE</span><span class="round-badge" id="rule-badge">+2</span></div>
+          <h2 id="rule-title">Add the last two.</h2><p class="rule-copy" id="rule-copy">Keep the last digit of their sum.<br>That’s your next tile.</p>
+          <div class="formula" id="formula" aria-label="Calculate the next digit"></div>
+          <div class="hint-explanation" id="hint-explanation" hidden></div>
+          <div class="digit-heading"><span>CHOOSE YOUR DIGIT</span><kbd>0–9</kbd></div>
+          <div class="digit-tray" id="digit-tray" role="group" aria-label="Choose a digit"></div>
+          <p class="placement-instruction" id="placement-instruction">Then tap an outlined hex to place it.</p>
+          <div class="panel-actions"><button id="undo-button" class="secondary-button" title="Undo (Z)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 5 3 9l4 4M3 9h9a5 5 0 0 1 0 10" transform="translate(1 -3)"/></svg>Undo</button><button id="hint-button" class="secondary-button" title="Hint (H)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6.5 12.5a6 6 0 1 1 7 0L13 15H7Zm1 5h5M10 1v2"/></svg>Hint</button></div>
+          <div class="stats"><div><strong id="placed-stat">0</strong><span>TILES PLACED</span></div><div><strong id="best-stat">0</strong><span>PERSONAL BEST</span></div></div>
+          <button id="new-button" class="new-button">Start a new path <span>↗</span></button>
+          <div class="save-status"><span class="status-dot"></span><span id="save-status">Your path is saved automatically</span></div>
+        </aside>
+      </div>
+      <div class="game-footer"><div><span class="legend-seed"></span>Starting tiles<span class="legend-path"></span>Your path<span class="legend-open"></span>Possible next steps</div><span>NO TIMER. JUST YOU & THE NUMBERS.</span></div>
+    </section>
+    <section class="below-game" aria-label="Quick instructions"><p><span>01</span> Do a little mental math.</p><p><span>02</span> Keep just the last digit.</p><p><span>03</span> Make a little more room.</p><div class="handwritten">There’s always another direction.</div></section>
+  </main>
+  <footer class="site-footer"><span>number hex<span class="brand-dot">.</span></span><span>One digit. Endless possibilities.</span><a href="https://github.com/B0bober/number-hex" target="_blank" rel="noopener">Made to play. Open to explore. ↗</a></footer>
+  <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+
+  <dialog id="help-dialog" aria-labelledby="help-title"><button class="dialog-close" aria-label="Close instructions" data-close="help-dialog">×</button><p class="eyebrow">A SMALL RULE. AN ENDLESS GAME.</p><h2 id="help-title">Follow the numbers.</h2><ol class="help-steps"><li><strong>Look at the latest tiles.</strong><p>“Precedents” means the last numbers played along your path. The starting digits are given; change them with “Start a new path.”</p></li><li><strong>Work out the next digit.</strong><p>In Sum of 2, add the last two: 8 + 7 = 15, so place <b>5</b>. Sum of 3 uses three digits. Multiply uses the last two: 7 × 8 = 56, so place <b>6</b>.</p></li><li><strong>Choose a digit, then an open hex.</strong><p>The new tile must share a side with the latest tile. You can turn in any direction, but you can’t reuse an occupied hex. Other neighboring tiles don’t affect the calculation.</p></li><li><strong>Keep growing.</strong><p>There’s no timer or fixed edge. If you circle yourself in, undo a move and find another way. Multiplication can reach 0; continuing with zeros is valid.</p></li></ol><div class="keyboard-help"><b>Keyboard shortcuts</b><span>0–9 select · Z undo · H hint · C center · +/− zoom · arrows pan</span><span>Tab to a highlighted hex, then press Enter to place.</span></div><button class="primary-button" data-close="help-dialog">Let’s play <span>↗</span></button></dialog>
+  <dialog id="new-dialog" aria-labelledby="new-title"><button class="dialog-close" aria-label="Close new path" data-close="new-dialog">×</button><p class="eyebrow">A FRESH DIRECTION</p><h2 id="new-title">Start something new.</h2><p class="dialog-copy">Pick your starting digits. Every choice leads to a different sequence.</p><form id="new-form"><fieldset><legend>Starting digits <span id="seed-rule-label"></span></legend><div class="seed-inputs" id="seed-inputs"></div></fieldset><p class="new-note">This replaces the current path in this mode. Your personal best stays.</p><button type="submit" class="primary-button">Start new path <span>↗</span></button></form></dialog>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
